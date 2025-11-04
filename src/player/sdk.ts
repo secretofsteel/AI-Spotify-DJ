@@ -47,3 +47,21 @@ export async function initPlayer(getOAuthToken: (cb: (t: string) => void) => voi
     player.connect()
   }
 }
+
+// Add this to satisfy DevicePicker imports
+export async function connectPlayer(
+  getOAuthToken: (cb: (t: string) => void) => void,
+  onState: (s: any) => void
+) {
+  // If the player isn't set up yet, init it first
+  if (!player) {
+    await initPlayer(getOAuthToken, onState);
+  }
+  try {
+    const ok = await player.connect();
+    return ok;
+  } catch (e) {
+    console.error('[SDK] connect failed', e);
+    return false;
+  }
+}

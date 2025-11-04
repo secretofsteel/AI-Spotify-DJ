@@ -125,3 +125,15 @@ export function getStoredToken(): string | null {
     return null
   }
 }
+// ---------------------------------------------------------------------------
+// Compatibility export for old App.tsx import
+// ---------------------------------------------------------------------------
+/** Remove stored tokens from localStorage and memory */
+export function clearToken() {
+  try {
+    localStorage.removeItem('sp_tokens');
+    console.log('[AUTH] token cleared');
+  } catch (err) {
+    console.warn('[AUTH] failed to clear token', err);
+  }
+}

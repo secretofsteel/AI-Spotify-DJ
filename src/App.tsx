@@ -15,8 +15,7 @@ import { connectPlayer, initPlayer } from './player/sdk';
 import { getMe, getPlaybackState } from './api/spotify';
 import { usePlayerStore } from './store/usePlayerStore';
 import React from "react"
-import { createCodeVerifierAndChallenge, buildAuthorizeUrl } from "./auth/spotifyAuth"
-import Deck from "./components/Deck"  // whatever your main DJ UI is called
+import { createCodeVerifierAndChallenge, buildAuthorizeUrl } from "./auth/spotifyAuth" // whatever your main DJ UI is called
 
 const SCOPES = [
   'streaming',
@@ -50,7 +49,6 @@ function Login(): JSX.Element {
 
 export default function App(): JSX.Element {
     // === Auth glue (drop-in) ===
-  const { token } = usePlayerStore(); // uses your existing store
 
   async function handleLogin() {
     try {
@@ -65,22 +63,7 @@ export default function App(): JSX.Element {
     }
   }
 
-  // If not authenticated, early-return a simple login screen.
-  if (!token) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen text-center bg-gray-900 text-white">
-        <h1 className="text-4xl font-bold mb-6">AI Spotify DJ</h1>
-        <p className="text-lg mb-4">Login to start the setlist magic.</p>
-        <button
-          onClick={handleLogin}
-          className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-md shadow-lg transition"
-        >
-          Login with Spotify
-        </button>
-      </div>
-    );
-  }
-  // === End auth glue ===
+
 
   const token = usePlayerStore((state) => state.token);
   const setToken = usePlayerStore((state) => state.setToken);
@@ -101,6 +84,23 @@ export default function App(): JSX.Element {
     }
     return !localStorage.getItem(NORMALIZE_HINT_KEY);
   });
+
+  // If not authenticated, early-return a simple login screen.
+  if (!token) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen text-center bg-gray-900 text-white">
+        <h1 className="text-4xl font-bold mb-6">AI Spotify DJ</h1>
+        <p className="text-lg mb-4">Login to start the setlist magic.</p>
+        <button
+          onClick={handleLogin}
+          className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-md shadow-lg transition"
+        >
+          Login with Spotify
+        </button>
+      </div>
+    );
+  }
+  // === End auth glue ===
 
   useEffect(() => {
     if (typeof window === 'undefined') {

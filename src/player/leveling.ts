@@ -1,45 +1,22 @@
-import { getAudioFeatures } from '../api/spotify';
-import { usePlayerStore } from '../store/usePlayerStore';
+// src/player/leveling.ts
+import { getAudioFeatures } from '../api/spotify'
 
-const RAMP_DURATION_MS = 2000;
-const RAMP_STEPS = 20;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-export async function applyLevelingForNextTrack(player: Spotify.Player, nextTrackId: string): Promise<void> {
-  if (!nextTrackId) {
-    return;
-  }
-
-  const { log, setVolume } = usePlayerStore.getState();
-
+export async function applyLevelingForNextTrack(player: any, nextTrackId: string) {
+  if (!player || !nextTrackId) return
   try {
-    const { loudness } = await getAudioFeatures(nextTrackId);
-    const targetDb = -14;
-    const factor = Math.min(1, Math.max(0.4, Math.pow(10, (targetDb - loudness) / 20)));
-
-    const currentVolume = await player.getVolume().catch(() => usePlayerStore.getState().volume);
-    const startVolume = typeof currentVolume === 'number' ? currentVolume : usePlayerStore.getState().volume;
-
-    if (Math.abs(startVolume - factor) < 0.01) {
-      return;
+    const feats = await getAudioFeatures(nextTrackId)
+    const loudness = (feats as any).loudness ?? -14
+    const targetDb = -14
+    const delta = targetDb - loudness
+    const factor = Math.min(1.0, Math.max(0.4, Math.pow(10, delta / 20)))
+    const current = await player.getVolume()
+    const steps = 20
+    const step = (factor - current) / steps
+    for (let i = 1; i <= steps; i++) {
+      await new Promise(r => setTimeout(r, 100))
+      await player.setVolume(current + step * i)
     }
-
-    const delta = factor - startVolume;
-    const interval = RAMP_DURATION_MS / RAMP_STEPS;
-
-    for (let step = 1; step <= RAMP_STEPS; step += 1) {
-      const nextVolume = Math.min(1, Math.max(0.4, startVolume + (delta * step) / RAMP_STEPS));
-      await player.setVolume(nextVolume);
-      setVolume(nextVolume);
-      await sleep(interval);
-    }
-
-    log(`Leveled next track (${nextTrackId}) to ${factor.toFixed(2)} target.`);
-  } catch (error) {
-    const err = error as Error;
-    log(`Failed leveling next track: ${err.message}`, 'warn');
+  } catch (e) {
+    console.warn('leveling failed', e)
   }
 }

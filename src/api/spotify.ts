@@ -1,168 +1,89 @@
-import { usePlayerStore } from '../store/usePlayerStore';
+// src/api/spotify.ts
 
-const API_BASE = 'https://api.spotify.com/v1';
-const MAX_RETRY = 3;
+let accessToken = '' // set from your store after auth
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export function setAccessToken(token: string) {
+  accessToken = token
 }
 
-async function spotifyFetch<T>(path: string, init?: RequestInit, attempt = 0): Promise<T> {
-  const { token, setNetworkError, log } = usePlayerStore.getState();
-
-  if (!token) {
-    throw new Error('No Spotify access token available.');
-  }
-
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    Authorization: `${token.tokenType ?? 'Bearer'} ${token.accessToken}`
-  };
-
-  if (init?.headers) {
-    Object.assign(headers, init.headers);
-  }
-
-  const response = await fetch(`${API_BASE}${path}`, {
+async function spFetch(path: string, init: RequestInit = {}, retry = 0): Promise<Response> {
+  const res = await fetch(`https://api.spotify.com/v1${path}`, {
     ...init,
-    headers
-  });
-
-  if (response.status === 204) {
-    return null as T;
-  }
-
-  if (response.status === 429 && attempt < MAX_RETRY) {
-    const retryAfterHeader = response.headers.get('Retry-After');
-    const retryAfter = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 1000;
-    log(`Rate limited by Spotify. Retrying in ${retryAfter}ms`, 'warn');
-    await sleep(retryAfter);
-    return spotifyFetch<T>(path, init, attempt + 1);
-  }
-
-  if (!response.ok) {
-    const message = await response.text();
-    if (response.status === 403) {
-      setNetworkError('Spotify Premium is required to use the web playback SDK.');
-    } else if (response.status === 404) {
-      setNetworkError('No active Spotify device found. Open Spotify on another device or retry.');
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      ...(init.headers || {})
     }
-    throw new Error(`Spotify API error ${response.status}: ${message}`);
+  })
+  if (res.status === 429 && retry < 2) {
+    const ra = Number(res.headers.get('Retry-After') || 1)
+    await new Promise(r => setTimeout(r, ra * 1000))
+    return spFetch(path, init, retry + 1)
   }
-
-  setNetworkError(null);
-  return (await response.json()) as T;
+  return res
 }
 
-export async function getMe(): Promise<{ id: string; display_name?: string }> {
-  const data = await spotifyFetch<SpotifyApi.CurrentUsersProfileResponse>('/me', {
-    method: 'GET'
-  });
-  const { setIsPremium, log } = usePlayerStore.getState();
-  setIsPremium(data.product === 'premium');
-  log(`Logged in as ${data.display_name ?? data.id}`);
-  return { id: data.id, display_name: data.display_name ?? undefined };
+export async function getMe() {
+  const r = await spFetch('/me')
+  if (!r.ok) throw new Error(`getMe ${r.status}: ${await r.text()}`)
+  return r.json()
 }
 
-export async function transferPlayback(deviceId: string, play = false): Promise<void> {
-  await spotifyFetch<void>('/me/player', {
-    method: 'PUT',
-    body: JSON.stringify({
-      device_ids: [deviceId],
-      play
-    })
-  });
-  usePlayerStore.getState().log(`Transferred playback to browser device (${deviceId}).`);
+export async function transferPlayback(deviceId: string, play = true) {
+  const r = await spFetch('/me/player', { method: 'PUT', body: JSON.stringify({ device_ids: [deviceId], play }) })
+  if (!r.ok) throw new Error(`transferPlayback ${r.status}: ${await r.text()}`)
 }
 
-export async function searchTracks(q: string, limit = 10): Promise<SpotifyApi.TrackObjectFull[]> {
-  if (!q.trim()) {
-    return [];
-  }
-
-  const params = new URLSearchParams({
-    q,
-    type: 'track',
-    limit: String(limit)
-  });
-
-  const data = await spotifyFetch<SpotifyApi.SearchResponse>(`/search?${params.toString()}`, {
-    method: 'GET'
-  });
-
-  return data.tracks?.items ?? [];
+export async function searchTracks(q: string, limit = 10) {
+  const r = await spFetch(`/search?type=track&limit=${limit}&q=${encodeURIComponent(q)}`)
+  if (!r.ok) throw new Error(`search ${r.status}: ${await r.text()}`)
+  const data: any = await r.json()
+  return data.tracks?.items ?? []
 }
 
-export async function createPlaylist(userId: string, name: string, isPublic: boolean): Promise<{ id: string }> {
-  const data = await spotifyFetch<SpotifyApi.CreatePlaylistResponse>(`/users/${userId}/playlists`, {
+export async function createPlaylist(userId: string, name: string, isPublic = false) {
+  const r = await spFetch(`/users/${userId}/playlists`, {
     method: 'POST',
-    body: JSON.stringify({
-      name,
-      public: isPublic
-    })
-  });
-  usePlayerStore.getState().log(`Created playlist "${name}".`);
-  return { id: data.id };
+    body: JSON.stringify({ name, public: isPublic, description: 'AI Hour' })
+  })
+  if (!r.ok) throw new Error(`createPlaylist ${r.status}: ${await r.text()}`)
+  return r.json()
 }
 
-export async function addTracks(playlistId: string, uris: string[]): Promise<void> {
-  if (uris.length === 0) {
-    return;
-  }
-
-  await spotifyFetch<void>(`/playlists/${playlistId}/tracks`, {
-    method: 'POST',
-    body: JSON.stringify({ uris })
-  });
-  usePlayerStore.getState().log(`Added ${uris.length} tracks to playlist ${playlistId}.`);
+export async function addTracks(playlistId: string, uris: string[]) {
+  const r = await spFetch(`/playlists/${playlistId}/tracks`, { method: 'POST', body: JSON.stringify({ uris }) })
+  if (!r.ok) throw new Error(`addTracks ${r.status}: ${await r.text()}`)
 }
 
-export async function playContext(context_uri: string, offsetUri?: string): Promise<void> {
-  await spotifyFetch<void>('/me/player/play', {
-    method: 'PUT',
-    body: JSON.stringify(
-      offsetUri
-        ? {
-            context_uri,
-            offset: { uri: offsetUri }
-          }
-        : {
-            context_uri
-          }
-    )
-  });
-  usePlayerStore.getState().log(`Started playback for ${context_uri}.`);
+export async function playContext(context_uri: string, offsetUri?: string) {
+  const body: any = { context_uri }
+  if (offsetUri) body.offset = { uri: offsetUri }
+  const r = await spFetch('/me/player/play', { method: 'PUT', body: JSON.stringify(body) })
+  if (!r.ok) throw new Error(`playContext ${r.status}: ${await r.text()}`)
 }
 
-export async function addToQueue(uri: string): Promise<void> {
-  const params = new URLSearchParams({ uri });
-  await spotifyFetch<void>(`/me/player/queue?${params.toString()}`, {
-    method: 'POST'
-  });
-  usePlayerStore.getState().log(`Queued ${uri}.`);
+export async function addToQueue(uri: string) {
+  const r = await spFetch(`/me/player/queue?uri=${encodeURIComponent(uri)}`, { method: 'POST', headers: {} })
+  if (r.status === 204) return
+  const text = await r.text() // don’t json-parse a 204 body
+  if (!r.ok) throw new Error(`Queue failed: ${r.status} ${text || ''}`)
 }
 
-export async function getAudioFeatures(id: string): Promise<{ loudness: number }> {
-  const data = await spotifyFetch<SpotifyApi.AudioFeaturesResponse>(`/audio-features/${id}`, {
-    method: 'GET'
-  });
-  return { loudness: data.loudness ?? -14 };
+export async function getAudioFeatures(id: string) {
+  const r = await spFetch(`/audio-features/${id}`)
+  if (!r.ok) throw new Error(`audio-features ${r.status}: ${await r.text()}`)
+  return r.json() as Promise<{ loudness: number }>
 }
 
-export async function getAudioAnalysis(id: string): Promise<SpotifyApi.AudioAnalysisResponse> {
-  return spotifyFetch<SpotifyApi.AudioAnalysisResponse>(`/audio-analysis/${id}`, {
-    method: 'GET'
-  });
+export async function getAudioAnalysis(id: string) {
+  const r = await spFetch(`/audio-analysis/${id}`)
+  if (!r.ok) throw new Error(`audio-analysis ${r.status}: ${await r.text()}`)
+  return r.json()
 }
 
-export async function getPlaybackState(): Promise<SpotifyApi.CurrentPlaybackResponse | null> {
-  try {
-    return await spotifyFetch<SpotifyApi.CurrentPlaybackResponse | null>('/me/player', {
-      method: 'GET'
-    });
-  } catch (error) {
-    const err = error as Error;
-    usePlayerStore.getState().log(`Failed to fetch playback state: ${err.message}`, 'warn');
-    return null;
-  }
+export async function getPlaybackState() {
+  const r = await spFetch('/me/player')
+  if (r.status === 204) return null
+  if (!r.ok) throw new Error(`playback ${r.status}: ${await r.text()}`)
+  return r.json()
 }

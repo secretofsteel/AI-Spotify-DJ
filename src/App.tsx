@@ -16,7 +16,7 @@ import { getMe, getPlaybackState } from './api/spotify';
 import { usePlayerStore } from './store/usePlayerStore';
 import React from "react"
 import { createCodeVerifierAndChallenge, buildAuthorizeUrl } from "./auth/spotifyAuth"
-import MainDeckUI from "./components/Deck"  // whatever your main DJ UI is called
+import Deck from "./components/Deck"  // whatever your main DJ UI is called
 
 const SCOPES = [
   'streaming',

@@ -83,3 +83,45 @@ export async function refreshAccessToken(refreshToken: string) {
   if (!resp.ok) throw new Error(`Refresh failed ${resp.status}: ${JSON.stringify(json)}`)
   return json as { access_token: string; expires_in: number; token_type: 'Bearer' }
 }
+
+// ---------------------------------------------------------------------------
+// Compatibility exports for existing imports in App.tsx
+// These wrap the PKCE helpers we already have so you don't have to refactor App.
+// ---------------------------------------------------------------------------
+
+/** Start the login flow (build authorize URL + redirect) */
+export async function loginRedirect() {
+  const { challenge } = await createCodeVerifierAndChallenge()
+  const state = crypto.randomUUID()
+  const url = buildAuthorizeUrl(challenge, state)
+  console.log('[AUTH] authorize URL =', url)
+  window.location.href = url
+}
+
+/** Parse /callback URL params */
+export function parseAuthCallback() {
+  const params = new URLSearchParams(window.location.search)
+  const code = params.get('code')
+  const state = params.get('state')
+  return { code, state }
+}
+
+/** Exchange the authorization code for tokens (PKCE) */
+export async function getAccessTokenFromCode(code: string) {
+  return exchangeCodeForToken(code) // returns { access_token, refresh_token?, ... }
+}
+
+/**
+ * Optional convenience: read a previously stored token from localStorage.
+ * Safe no-op if you don't end up using it.
+ */
+export function getStoredToken(): string | null {
+  try {
+    const raw = localStorage.getItem('sp_tokens')
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return typeof parsed?.access_token === 'string' ? parsed.access_token : null
+  } catch {
+    return null
+  }
+}
